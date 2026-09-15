@@ -1774,7 +1774,18 @@ pub trait FloatTensorOps<B: Backend> {
     ///
     /// # Returns
     ///
-    /// A tensor with the same shape as `tensor` containing the signs of the elements of `tensor`.
+    /// A tensor with the same shape as `tensor` containing the signs of the elements of `tensor`:
+    /// `1` where positive, `-1` where negative, and `0` where zero (either sign) or NaN.
+    ///
+    /// `sign(NaN) == 0` (matching PyTorch's convention, *not* [`f32::signum`], which propagates
+    /// NaN) is part of this contract, not an implementation detail: every backend must honor it,
+    /// since `abs()`'s gradient is `grad * sign(input)`, so a backend that instead derives the
+    /// result from a NaN's incidental sign bit (e.g. `num_traits::Signed::is_positive`, which is
+    /// a raw sign-bit check rather than a numeric comparison) turns a backward pass through NaN
+    /// into a plausible-looking finite gradient instead of propagating the NaN. This default
+    /// implementation is NaN-safe because `float_lower_elem`/`float_greater_elem` are ordinary
+    /// numeric comparisons, which are false for NaN on both sides, leaving the `zeros` fill in
+    /// place; an override must preserve that behavior explicitly.
     fn float_sign(tensor: FloatTensor<B>) -> FloatTensor<B> {
         let device = tensor.device();
         let bool_dtype = get_device_settings::<B>(&tensor.device()).bool_dtype;

@@ -641,26 +641,31 @@ impl FloatTensorOps<Flex> for Flex {
     // whole crate fails to compile for those targets. One scalar constant
     // leaves the pool with nothing to hold.
     //
-    // The zero branch is load bearing: `copysign(1.0, -0.0)` is `-1.0`, not
-    // `0.0`, so negative zero must be caught before it reaches there. `-0.0 ==
-    // 0.0` under IEEE 754, so one comparison covers both signed zeros, matching
-    // the previous fall-through.
+    // The zero-or-NaN branch is load bearing on both sides:
+    //
+    //   - `copysign(1.0, -0.0)` is `-1.0`, not `0.0`, so negative zero must be
+    //     caught before it reaches there. `-0.0 == 0.0` under IEEE 754, so one
+    //     comparison covers both signed zeros, matching the previous fall-through.
+    //   - `sign(NaN)` is part of the cross-backend contract on
+    //     `FloatTensorOps::float_sign` and must be `0` (PyTorch's convention),
+    //     not the NaN itself. `x == 0.0` is false for NaN on either sign bit, so
+    //     NaN must be checked explicitly rather than assumed to fall through to
+    //     the zero case; returning `x` there — as if propagating NaN were the
+    //     safe default — actually contradicts the contract, and quietly breaks
+    //     anything built on `sign()` assuming a finite result (e.g. `abs()`'s
+    //     gradient is `grad * sign(input)`).
     fn float_sign(tensor: FloatTensor<Flex>) -> FloatTensor<Flex> {
         unary::unary_op(
             tensor,
             |x: f32| {
-                if x.is_nan() {
-                    x
-                } else if x == 0.0 {
+                if x.is_nan() || x == 0.0 {
                     0.0
                 } else {
                     libm::copysignf(1.0, x)
                 }
             },
             |x: f64| {
-                if x.is_nan() {
-                    x
-                } else if x == 0.0 {
+                if x.is_nan() || x == 0.0 {
                     0.0
                 } else {
                     libm::copysign(1.0, x)

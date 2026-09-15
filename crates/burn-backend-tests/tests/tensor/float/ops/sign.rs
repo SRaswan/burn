@@ -30,10 +30,17 @@ fn should_support_sign_ops_float_negative_zero() {
 
 #[test]
 fn should_support_sign_ops_float_nan() {
-    let tensor = TestTensor::<1>::from([f32::NAN]);
+    // `sign(NaN)` must be `0` on every backend (PyTorch's convention, not
+    // `f32::signum`'s, which propagates NaN) — part of the shared contract on
+    // `FloatTensorOps::float_sign`, not an ndarray-specific detail. Covers both
+    // NaN sign bits: a naive implementation keyed off the sign bit (e.g.
+    // `num_traits::Signed::is_positive`, a sign-bit check rather than a numeric
+    // comparison) can pass with one bit pattern and fail with the other.
+    let tensor = TestTensor::<1>::from([f32::NAN, -f32::NAN]);
 
     let output = tensor.sign().into_data().convert::<f32>();
     let output = output.as_slice::<f32>().unwrap();
 
     assert_eq!(output[0], 0.0);
+    assert_eq!(output[1], 0.0);
 }
