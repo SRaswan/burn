@@ -1057,9 +1057,30 @@ pub trait FloatTensorOps<B: Backend> {
     /// # Returns
     ///
     /// The elements of `lhs` raised to the value of `rhs`.
+    ///
+    /// # Autodiff note
+    ///
+    /// Every arm here must derive its result from `lhs` through ops `B`
+    /// actually implements (`float_mul`, `float_recip`, or `lhs` itself),
+    /// never through an unrelated tensor-constructor call — on `Autodiff<B>`,
+    /// that's what carries the backward edge back to `lhs`'s node. The `0`
+    /// case used to return `Self::float_ones(..)`, a fresh constant with no
+    /// relation to `lhs` at all: mathematically fine (`x^0 == 1` for every
+    /// `x`), but it silently detached the *entire* output from the autodiff
+    /// graph instead of attaching a (correctly zero) gradient, so a later
+    /// `.backward()` on it — or on anything downstream built only from
+    /// `x^0`-derived values — panicked with "requires a tracked autodiff
+    /// tensor" even though `lhs` legitimately required grad. `0 * lhs + 1`
+    /// gives the same forward result through ops that do preserve the edge.
     fn float_powi_scalar(lhs: FloatTensor<B>, rhs: Scalar) -> FloatTensor<B> {
         match rhs.elem::<i64>() {
-            0 => Self::float_ones(lhs.shape(), &lhs.device(), lhs.dtype().into()),
+            0 => {
+                let dtype = lhs.dtype();
+                B::float_add_scalar(
+                    B::float_mul_scalar(lhs, Scalar::new(0.0_f32, &dtype)),
+                    Scalar::new(1.0_f32, &dtype),
+                )
+            }
             1 => lhs,
             2 => B::float_mul(lhs.clone(), lhs),
             -1 => Self::float_recip(lhs),

@@ -59,6 +59,32 @@ fn should_diff_powf() {
 }
 
 #[test]
+fn should_diff_powf_scalar_zero_exponent() {
+    // `x.powf_scalar(0.0)` is `1` for every `x`, so its gradient is `0` — but
+    // the default `float_powi_scalar` used to special-case the exponent-0 case
+    // as `Self::float_ones(..)`, a tensor constructor with no relation to the
+    // input tensor at all. On `Autodiff<B>`, that meant the result carried no
+    // backward edge back to `x`'s node — not "zero gradient", but genuinely
+    // untracked — so a later `.backward()` on it (or anything built solely
+    // from it) panicked with "requires a tracked autodiff tensor" even though
+    // `tensor_1` legitimately required grad.
+    let device = AutodiffDevice::new();
+    let tensor_1 = TestTensor::<1>::from_data([2.0, -3.0, 0.0], &device).require_grad();
+
+    let tensor_2 = tensor_1.clone().powf_scalar(0.0);
+    let grads = tensor_2.clone().sum().backward();
+
+    let grad_1 = tensor_1.grad(&grads).unwrap();
+
+    tensor_2
+        .into_data()
+        .assert_approx_eq::<FloatElem>(&TensorData::from([1.0, 1.0, 1.0]), Tolerance::default());
+    grad_1
+        .into_data()
+        .assert_approx_eq::<FloatElem>(&TensorData::from([0.0, 0.0, 0.0]), Tolerance::default());
+}
+
+#[test]
 fn should_diff_powf_with_untracked_lhs() {
     let device = AutodiffDevice::new();
     let tensor_1 = TestTensor::<1>::from_data([2.0, 7.0], &device);
