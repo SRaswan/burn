@@ -698,19 +698,8 @@ impl FloatTensorOps<Flex> for Flex {
     // whole crate fails to compile for those targets. One scalar constant
     // leaves the pool with nothing to hold.
     //
-    // The zero-or-NaN branch is load bearing on both sides:
-    //
-    //   - `copysign(1.0, -0.0)` is `-1.0`, not `0.0`, so negative zero must be
-    //     caught before it reaches there. `-0.0 == 0.0` under IEEE 754, so one
-    //     comparison covers both signed zeros, matching the previous fall-through.
-    //   - `sign(NaN)` is part of the cross-backend contract on
-    //     `FloatTensorOps::float_sign` and must be `0` (PyTorch's convention),
-    //     not the NaN itself. `x == 0.0` is false for NaN on either sign bit, so
-    //     NaN must be checked explicitly rather than assumed to fall through to
-    //     the zero case; returning `x` there — as if propagating NaN were the
-    //     safe default — actually contradicts the contract, and quietly breaks
-    //     anything built on `sign()` assuming a finite result (e.g. `abs()`'s
-    //     gradient is `grad * sign(input)`).
+    // `copysign(1.0, -0.0)` is `-1.0`, and NaN isn't `== 0.0` on either sign
+    // bit, so both must be checked before falling into `copysign`
     fn float_sign(tensor: FloatTensor<Flex>) -> FloatTensor<Flex> {
         unary::unary_op(
             tensor,

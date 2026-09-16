@@ -1058,20 +1058,9 @@ pub trait FloatTensorOps<B: Backend> {
     ///
     /// The elements of `lhs` raised to the value of `rhs`.
     ///
-    /// # Autodiff note
-    ///
-    /// Every arm here must derive its result from `lhs` through ops `B`
-    /// actually implements (`float_mul`, `float_recip`, or `lhs` itself),
-    /// never through an unrelated tensor-constructor call — on `Autodiff<B>`,
-    /// that's what carries the backward edge back to `lhs`'s node. The `0`
-    /// case used to return `Self::float_ones(..)`, a fresh constant with no
-    /// relation to `lhs` at all: mathematically fine (`x^0 == 1` for every
-    /// `x`), but it silently detached the *entire* output from the autodiff
-    /// graph instead of attaching a (correctly zero) gradient, so a later
-    /// `.backward()` on it — or on anything downstream built only from
-    /// `x^0`-derived values — panicked with "requires a tracked autodiff
-    /// tensor" even though `lhs` legitimately required grad. `0 * lhs + 1`
-    /// gives the same forward result through ops that do preserve the edge.
+    /// Each arm must derive its result from `lhs` via a tracked op (`float_mul`,
+    /// `float_recip`, `lhs` itself) rather than an unrelated constructor like
+    /// `float_ones`, which would detach the output from the autodiff graph.
     fn float_powi_scalar(lhs: FloatTensor<B>, rhs: Scalar) -> FloatTensor<B> {
         match rhs.elem::<i64>() {
             0 => {
@@ -1798,15 +1787,7 @@ pub trait FloatTensorOps<B: Backend> {
     /// A tensor with the same shape as `tensor` containing the signs of the elements of `tensor`:
     /// `1` where positive, `-1` where negative, and `0` where zero (either sign) or NaN.
     ///
-    /// `sign(NaN) == 0` (matching PyTorch's convention, *not* [`f32::signum`], which propagates
-    /// NaN) is part of this contract, not an implementation detail: every backend must honor it,
-    /// since `abs()`'s gradient is `grad * sign(input)`, so a backend that instead derives the
-    /// result from a NaN's incidental sign bit (e.g. `num_traits::Signed::is_positive`, which is
-    /// a raw sign-bit check rather than a numeric comparison) turns a backward pass through NaN
-    /// into a plausible-looking finite gradient instead of propagating the NaN. This default
-    /// implementation is NaN-safe because `float_lower_elem`/`float_greater_elem` are ordinary
-    /// numeric comparisons, which are false for NaN on both sides, leaving the `zeros` fill in
-    /// place; an override must preserve that behavior explicitly.
+    /// `sign(NaN) == 0` is part of this contract and every backend override must uphold it too.
     fn float_sign(tensor: FloatTensor<B>) -> FloatTensor<B> {
         let device = tensor.device();
         let bool_dtype = get_device_settings::<B>(&tensor.device()).bool_dtype;
