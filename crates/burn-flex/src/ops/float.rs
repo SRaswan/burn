@@ -8,17 +8,24 @@ use burn_backend::{
     tensor::{BoolTensor, Device, FloatTensor, IntTensor},
 };
 use burn_std::{Bytes, IntDType, Shape, Slice, bf16, f16};
-#[cfg(not(feature = "std"))]
-#[allow(unused_imports)]
-use num_traits::Float;
+use num_traits::{Float, ToPrimitive};
 
 use crate::Layout;
-use num_traits::ToPrimitive;
-
 use crate::ops::binary::{BinaryOp, binary_op, scalar_op};
 use crate::ops::matmul;
 use crate::ops::unary;
 use crate::{Flex, FlexTensor};
+
+/// Python/PyTorch-style remainder: result has same sign as divisor.
+#[inline]
+fn remainder_float<T: Float>(a: T, b: T) -> T {
+    let r = a % b;
+    if r != T::zero() && (r < T::zero()) != (b < T::zero()) {
+        r + b
+    } else {
+        r
+    }
+}
 
 impl FloatTensorOps<Flex> for Flex {
     fn float_from_data(data: TensorData, _device: &Device<Flex>) -> FloatTensor<Flex> {
@@ -166,24 +173,12 @@ impl FloatTensorOps<Flex> for Flex {
 
     fn float_remainder(lhs: FloatTensor<Flex>, rhs: FloatTensor<Flex>) -> FloatTensor<Flex> {
         // Python/PyTorch-style remainder: result has same sign as divisor
-        binary_op(
-            lhs,
-            rhs,
-            |a, b| ((a % b) + b) % b,
-            |a, b| ((a % b) + b) % b,
-            None,
-        )
+        binary_op(lhs, rhs, remainder_float, remainder_float, None)
     }
 
     fn float_remainder_scalar(lhs: FloatTensor<Flex>, rhs: Scalar) -> FloatTensor<Flex> {
-        let rhs_val = rhs.to_f64().unwrap();
         // Python/PyTorch-style remainder: result has same sign as divisor
-        scalar_op(
-            lhs,
-            rhs_val,
-            |a, b| ((a % b) + b) % b,
-            |a, b| ((a % b) + b) % b,
-        )
+        scalar_op(lhs, rhs.to_f64().unwrap(), remainder_float, remainder_float)
     }
 
     fn float_matmul(lhs: FloatTensor<Flex>, rhs: FloatTensor<Flex>) -> FloatTensor<Flex> {
@@ -335,7 +330,36 @@ impl FloatTensorOps<Flex> for Flex {
                 }
                 _ => panic!("float_scatter: unsupported dtype {:?}", tensor.dtype()),
             },
-            other => unimplemented!("float_scatter with {other:?} update is not implemented"),
+            burn_backend::tensor::IndexingUpdateOp::Min => match tensor.dtype() {
+                DType::F32 => {
+                    crate::ops::gather_scatter::scatter_min::<f32>(tensor, dim, indices, value)
+                }
+                DType::F64 => {
+                    crate::ops::gather_scatter::scatter_min::<f64>(tensor, dim, indices, value)
+                }
+                DType::F16 => {
+                    crate::ops::gather_scatter::scatter_min::<f16>(tensor, dim, indices, value)
+                }
+                DType::BF16 => {
+                    crate::ops::gather_scatter::scatter_min::<bf16>(tensor, dim, indices, value)
+                }
+                _ => panic!("float_scatter: unsupported dtype {:?}", tensor.dtype()),
+            },
+            burn_backend::tensor::IndexingUpdateOp::Max => match tensor.dtype() {
+                DType::F32 => {
+                    crate::ops::gather_scatter::scatter_max::<f32>(tensor, dim, indices, value)
+                }
+                DType::F64 => {
+                    crate::ops::gather_scatter::scatter_max::<f64>(tensor, dim, indices, value)
+                }
+                DType::F16 => {
+                    crate::ops::gather_scatter::scatter_max::<f16>(tensor, dim, indices, value)
+                }
+                DType::BF16 => {
+                    crate::ops::gather_scatter::scatter_max::<bf16>(tensor, dim, indices, value)
+                }
+                _ => panic!("float_scatter: unsupported dtype {:?}", tensor.dtype()),
+            },
         }
     }
 
@@ -448,9 +472,42 @@ impl FloatTensorOps<Flex> for Flex {
                     tensor.dtype()
                 ),
             },
-            other => {
-                unimplemented!("float_select_assign with {other:?} update is not implemented")
-            }
+            burn_backend::tensor::IndexingUpdateOp::Min => match tensor.dtype() {
+                DType::F32 => {
+                    crate::ops::gather_scatter::select_min::<f32>(tensor, dim, indices, value)
+                }
+                DType::F64 => {
+                    crate::ops::gather_scatter::select_min::<f64>(tensor, dim, indices, value)
+                }
+                DType::F16 => {
+                    crate::ops::gather_scatter::select_min::<f16>(tensor, dim, indices, value)
+                }
+                DType::BF16 => {
+                    crate::ops::gather_scatter::select_min::<bf16>(tensor, dim, indices, value)
+                }
+                _ => panic!(
+                    "float_select_assign: unsupported dtype {:?}",
+                    tensor.dtype()
+                ),
+            },
+            burn_backend::tensor::IndexingUpdateOp::Max => match tensor.dtype() {
+                DType::F32 => {
+                    crate::ops::gather_scatter::select_max::<f32>(tensor, dim, indices, value)
+                }
+                DType::F64 => {
+                    crate::ops::gather_scatter::select_max::<f64>(tensor, dim, indices, value)
+                }
+                DType::F16 => {
+                    crate::ops::gather_scatter::select_max::<f16>(tensor, dim, indices, value)
+                }
+                DType::BF16 => {
+                    crate::ops::gather_scatter::select_max::<bf16>(tensor, dim, indices, value)
+                }
+                _ => panic!(
+                    "float_select_assign: unsupported dtype {:?}",
+                    tensor.dtype()
+                ),
+            },
         }
     }
 
